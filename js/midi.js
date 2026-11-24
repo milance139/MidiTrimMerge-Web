@@ -179,7 +179,7 @@
     src.tracks.forEach((track, ti) => {
       const out = [];
       const ordered = stableSortByTick(track);
-      const latestMeta = new Map(), state = new Map(), active = new Map();
+      const latestMeta = new Map(), state = new Map(), active = new Map(), headers = [];
       if (ti === 0) {
         const t = tm.tempoAt(st);
         out.push({ tick: 0, status: 0xFF, meta: 0x51, d1: 0, d2: 0, data: new Uint8Array([(t >> 16) & 255, (t >> 8) & 255, t & 255]) });
@@ -187,12 +187,15 @@
       let i = 0;
       for (; i < ordered.length && ordered[i].tick < st; i++) {
         const e = ordered[i];
-        if (ev.isMeta(e)) { if (e.meta === 0x03 || e.meta === 0x04 || e.meta === 0x58 || e.meta === 0x59) latestMeta.set(e.meta, e); }
+        if (ev.isMeta(e)) {
+          if (e.meta === 0x03 || e.meta === 0x04 || e.meta === 0x58 || e.meta === 0x59) latestMeta.set(e.meta, e);
+          else if (isKarHeader(e)) headers.push(e);
+        }
         else if (ev.isNoteOn(e)) active.set(ev.noteKey(e), e);
         else if (ev.isNoteOff(e)) active.delete(ev.noteKey(e));
         else if (ev.isChannel(e)) state.set((ev.channel(e) << 16) | (ev.type(e) << 8) | (ev.type(e) === 0xB0 ? e.d1 : 0), e);
       }
-      for (const m of [latestMeta, state, active]) for (const e of m.values()) { const c = clone(e); c.tick = 0; out.push(c); }
+      for (const m of [headers, latestMeta.values(), state.values(), active.values()]) for (const e of m) { const c = clone(e); c.tick = 0; out.push(c); }
       for (; i < ordered.length && ordered[i].tick <= en; i++) {
         const e = ordered[i];
         if (e.tick === en && !ev.isNoteOff(e)) continue;
@@ -243,10 +246,14 @@
     const ppq = clips[0].ppq;
     const res = newSeq(ppq);
     const slots = [[]];   // slot 0 = conductor
+    clips = clips.map(c => rescale(c, ppq));
+    const words = karaokePlan(clips);
+    const wordsSlot = words.track + 1;
+    while (slots.length <= wordsSlot) slots.push([]);
     const fadeTrack = [];
     let offset = 0, prev = null, prevMap = null, prevExpr = new Map();
     for (let k = 0; k < clips.length; k++) {
-      const clip = rescale(clips[k], ppq);
+      const clip = clips[k];
       const overlapSec = (k > 0 && k - 1 < overlaps.length) ? overlaps[k - 1] : 0;
       let ov = 0, cut = 0, o = 0, ctm = null;
       if (prev && overlapSec > 0) {
@@ -298,7 +305,8 @@
             if (!curExpr.has(ev.channel(c))) curExpr.set(ev.channel(c), []);
             curExpr.get(ev.channel(c)).push([e.tick, c.d2]);
           }
-          (ev.isConductor(e) ? slots[0] : slots[ti + 1]).push(c);
+          if (words.onWordsTrack(k, e)) { words.convert(k, e, c); slots[wordsSlot].push(c); }
+          else (ev.isConductor(e) ? slots[0] : slots[ti + 1]).push(c);
         }
       });
       if (pendingTempo) { const c = clone(pendingTempo); c.tick = start + ov; slots[0].push(c); }
@@ -328,16 +336,22 @@
   function overlay(clips) {
     const ppq = clips[0].ppq;
     const res = newSeq(ppq);
-    const conductor = [];
+    const conductor = [], wordsTrack = [];
     res.tracks.push(conductor);
-    clips.forEach((c0, k) => {
-      const clip = rescale(c0, ppq);
+    clips = clips.map(c => rescale(c, ppq));
+    const words = karaokePlan(clips);
+    clips.forEach((clip, k) => {
       res.length = Math.max(res.length, clip.length);
-      for (const t of clip.tracks) {
-        const nt = [];
-        for (const e of t) { if (ev.isConductor(e)) { if (k === 0) conductor.push(clone(e)); } else nt.push(clone(e)); }
-        if (nt.length > 0) res.tracks.push(nt);
-      }
+      clip.tracks.forEach((t, ti) => {
+        const isWords = k === words.clip && ti === words.track;
+        const nt = isWords ? wordsTrack : [];
+        for (const e of t) {
+          if (ev.isConductor(e)) { if (k === 0) conductor.push(clone(e)); continue; }
+          const c = clone(e);
+          if (words.onWordsTrack(k, e)) { words.convert(k, e, c); wordsTrack.push(c); } else nt.push(c);
+        }
+        if (isWords || nt.length > 0) res.tracks.push(nt);
+      });
     });
     return res;
   }
@@ -476,10 +490,11 @@
   }
 
   // ---------- karaoke text ----------
+  const isKarHeader = e => ev.isMeta(e) && e.meta === 0x01 && e.data && e.data.length > 0 && e.data[0] === 64 /* '@' */;
   function lyricEvents(s) {
     const evs = stableSortByTick(s.tracks.flat().filter(e => ev.isMeta(e) && e.data && e.data.length > 0));
     let src = evs.filter(e => e.meta === 0x05);
-    if (src.length === 0) src = evs.filter(e => e.meta === 0x01 && e.data[0] !== 64 /* '@' */);
+    if (src.length === 0) src = evs.filter(e => e.meta === 0x01 && !isKarHeader(e));
     return src;
   }
 
@@ -531,6 +546,24 @@
   }
 
   const hasKaraoke = s => withoutCredits(lyricEvents(s), 0).filter(e => hasLetters(e.data)).length >= 3;
+
+  // How the sung words of several songs go into one merged file:
+  // - all of them, with the karaoke header lines (@KMIDI, @T, ...), on one track: the words track of the first
+  //   karaoke song (clip, track), because many players read the words from a single track;
+  // - Text-style words become Lyric events when the result has any Lyric event, because then players (and
+  //   lyricEvents) ignore Text events and that song's words would disappear.
+  function karaokePlan(clips) {
+    const words = clips.map(c => hasKaraoke(c) ? new Set(lyricEvents(c)) : null);
+    const toLyric = clips.some(c => c.tracks.some(t => t.some(e => ev.isMeta(e) && e.meta === 0x05 && e.data && e.data.length > 0)));
+    const clip = words.findIndex(w => w !== null);
+    const first = clip >= 0 ? lyricEvents(clips[clip])[0] : null;
+    const track = clip >= 0 ? clips[clip].tracks.findIndex(t => t.includes(first)) : -1;
+    return {
+      clip, track,
+      onWordsTrack: (k, e) => words[k] !== null && (words[k].has(e) || isKarHeader(e)),
+      convert: (k, e, c) => { if (toLyric && c.meta === 0x01 && words[k].has(e)) c.meta = 0x05; },
+    };
+  }
 
   // The words as plain text plus, for every syllable, where it sits in that text and when it is sung.
   function lyricsWithSpans(s, cp, hideCredits) {
