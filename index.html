@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIDI Trim &amp; Merge</title>
+  <meta name="description" content="Trim, merge and preview MIDI / karaoke files in the browser - nothing is uploaded.">
+  <link rel="icon" href="app.ico">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/webaudiofont@3.0.4/npm/dist/WebAudioFontPlayer.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header class="titlebar"><span class="logo">♫</span> <span id="appTitle"></span></header>
+
+    <main class="main">
+      <section class="left">
+        <div class="tablewrap" id="tableWrap">
+          <table class="songs" id="songs">
+            <thead><tr>
+              <th class="c-num">#</th><th class="c-file" data-t="colFile"></th><th class="c-len" data-t="colLen"></th>
+              <th class="c-used" data-t="colUsed"></th><th class="c-kar" data-t="colKar"></th>
+              <th class="c-bpm" data-t="colBpm"></th><th class="c-key" data-t="colKey"></th>
+            </tr></thead>
+            <tbody id="songBody"></tbody>
+          </table>
+          <div class="emptyhint" id="emptyHint"></div>
+        </div>
+        <div class="bar listbar">
+          <button id="btnAdd" data-t="add"></button>
+          <button id="btnRemove" data-t="remove"></button>
+          <button id="btnUp" data-t="up"></button>
+          <button id="btnDown" data-t="down"></button>
+          <span class="gap"></span>
+          <button id="btnUndo" data-t="undo"></button>
+          <button id="btnRedo" data-t="redo"></button>
+          <input type="file" id="fileInput" multiple accept=".mid,.midi,.kar,.rmi,audio/midi,audio/x-midi" hidden>
+          <input type="file" id="plInput" multiple accept=".mtm,.mid,.midi,.kar,.rmi" hidden>
+        </div>
+      </section>
+
+      <aside class="right">
+        <fieldset class="trimbox" id="trimBox">
+          <legend data-t="trimBox"></legend>
+          <div class="watermark" aria-hidden="true">
+            <span class="sig"><span>Мирослав</span><span class="sig2">Берјан</span></span>
+            <span class="note">♫</span>
+          </div>
+          <div class="info" id="info"></div>
+          <label class="lbl" data-t="start"></label>
+          <div class="timerow">
+            <input type="number" id="startMin" min="0" max="999" step="1"> <span data-t="unitMin"></span>
+            <input type="number" id="startSec" min="0" max="59.99" step="any"> <span data-t="unitSec"></span>
+          </div>
+          <label class="lbl" data-t="end"></label>
+          <div class="timerow">
+            <input type="number" id="endMin" min="0" max="999" step="1"> <span data-t="unitMin"></span>
+            <input type="number" id="endSec" min="0" max="59.99" step="any"> <span data-t="unitSec"></span>
+          </div>
+          <div class="btnrow">
+            <button id="btnApply" class="primary" data-t="apply"></button>
+            <button id="btnReset" data-t="reset"></button>
+          </div>
+          <button id="btnSaveOne" data-t="saveOne"></button>
+        </fieldset>
+        <div class="total" id="totalLabel"></div>
+      </aside>
+    </main>
+
+    <section class="bar playerbar">
+      <div class="row">
+        <button id="btnPlay" class="play"></button>
+        <button id="btnPlayAll" class="play"></button>
+        <span class="spacer"></span>
+        <button id="btnSetStart" data-t="setStart" data-tip="setStartTip"></button>
+        <button id="btnSetEnd" data-t="setEnd" data-tip="setEndTip"></button>
+        <button id="btnLive" data-t="live"></button>
+      </div>
+      <div class="row seekrow">
+        <input type="range" id="seek" min="0" max="1000" value="0">
+        <span id="lblPos" class="pos">0:00 / 0:00</span>
+      </div>
+    </section>
+
+    <footer class="bar bottombar">
+      <div class="row">
+        <label for="cmbMode" data-t="mode"></label>
+        <select id="cmbMode"><option value="0"></option><option value="1"></option></select>
+        <button id="btnMerge" class="primary big" data-t="merge"></button>
+        <span class="spacer"></span>
+        <button id="btnDebt" data-t="debtBtn"></button>
+        <label for="cmbLang" data-t="language"></label>
+        <select id="cmbLang"><option value="0">English</option><option value="1">Srpski</option></select>
+      </div>
+      <div class="row">
+        <label for="overlap" data-t="overlap" data-tip="overlapTip"></label>
+        <input type="number" id="overlap" min="0" max="60" step="0.5" value="0" data-tip="overlapTip">
+        <span data-t="overlapSec"></span>
+        <label class="chk" data-tip="fadeTip"><input type="checkbox" id="chkFade" checked> <span data-t="fade"></span></label>
+        <span class="spacer"></span>
+        <button id="btnAdv" data-t="advBtn"></button>
+      </div>
+      <div class="row">
+        <span id="status" class="status"></span>
+        <span class="spacer"></span>
+        <button id="btnSmaller" data-tip="smaller">A-</button>
+        <button id="btnLarger" data-tip="larger"><b>A+</b></button>
+        <button id="btnHelp" data-t="helpBtn"></button>
+      </div>
+    </footer>
+  </div>
+
+  <div id="dropOverlay" class="dropoverlay" hidden><div data-t="dropHere"></div></div>
+  <div id="layer"></div>
+
+  <script src="js/i18n.js"></script>
+  <script src="js/midi.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
