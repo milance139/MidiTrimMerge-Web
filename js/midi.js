@@ -247,7 +247,7 @@
     const res = newSeq(ppq);
     const slots = [[]];   // slot 0 = conductor
     clips = clips.map(c => rescale(c, ppq));
-    const words = karaokePlan(clips);
+    const words = karaokePlan(clips, true);
     const wordsSlot = words.track + 1;
     while (slots.length <= wordsSlot) slots.push([]);
     const fadeTrack = [];
@@ -551,17 +551,39 @@
   // - all of them, with the karaoke header lines (@KMIDI, @T, ...), on one track: the words track of the first
   //   karaoke song (clip, track), because many players read the words from a single track;
   // - Text-style words become Lyric events when the result has any Lyric event, because then players (and
-  //   lyricEvents) ignore Text events and that song's words would disappear.
-  function karaokePlan(clips) {
+  //   lyricEvents) ignore Text events and that song's words would disappear;
+  // - with breaks, every karaoke song after the first starts a new paragraph (on its first line, and on its
+  //   first sung line when credits come before it, so the break stays when credits are hidden).
+  // The text with a paragraph break in front: '\' in .kar style ('/' and '\' mark lines), else two CRs.
+  function newParagraph(d, kar) {
+    if (d[0] === 0x5C) return d;
+    let i = 0;
+    if (kar) { if (d[0] === 0x2F) i = 1; }
+    else while (i < d.length && (d[i] === 0x0D || d[i] === 0x0A)) i++;
+    const head = kar ? [0x5C] : [0x0D, 0x0D];
+    const r = new Uint8Array(head.length + d.length - i);
+    r.set(head); r.set(d.subarray(i), head.length);
+    return r;
+  }
+  function karaokePlan(clips, breaks) {
     const words = clips.map(c => hasKaraoke(c) ? new Set(lyricEvents(c)) : null);
     const toLyric = clips.some(c => c.tracks.some(t => t.some(e => ev.isMeta(e) && e.meta === 0x05 && e.data && e.data.length > 0)));
     const clip = words.findIndex(w => w !== null);
     const first = clip >= 0 ? lyricEvents(clips[clip])[0] : null;
     const track = clip >= 0 ? clips[clip].tracks.findIndex(t => t.includes(first)) : -1;
+    const starts = words.map((w, k) => {
+      if (!breaks || w === null || k <= clip) return null;
+      const evs = lyricEvents(clips[k]);
+      return { at: new Set([evs[0], withoutCredits(evs, 0)[0]]), kar: evs.some(e => e.data[0] === 0x5C || e.data[0] === 0x2F) };
+    });
     return {
       clip, track,
       onWordsTrack: (k, e) => words[k] !== null && (words[k].has(e) || isKarHeader(e)),
-      convert: (k, e, c) => { if (toLyric && c.meta === 0x01 && words[k].has(e)) c.meta = 0x05; },
+      convert: (k, e, c) => {
+        if (words[k] === null || !words[k].has(e)) return;
+        if (toLyric && c.meta === 0x01) c.meta = 0x05;
+        if (starts[k] && starts[k].at.has(e)) c.data = newParagraph(c.data, starts[k].kar);
+      },
     };
   }
 
